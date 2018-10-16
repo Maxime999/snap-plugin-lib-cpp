@@ -93,7 +93,7 @@ namespace Plugin {
         * it.
         */
         RpcType rpc_type;
-    
+
         /**
         * concurrency_count is the max number of concurrent calls the plugin
         * should take.  For example:
@@ -137,7 +137,7 @@ namespace Plugin {
         /**
         * Address GRPC will listen on
         */
-        std::string listen_addr;        
+        std::string listen_addr;
 
         /**
         * Enables pprof
@@ -160,7 +160,7 @@ namespace Plugin {
         std::string tls_certificate_key_path;
 
         /**
-        * Neccessary to proivide when TLS Enabled. 
+        * Neccessary to proivide when TLS Enabled.
         */
         std::string tls_certificate_authority_paths;
 
@@ -170,7 +170,7 @@ namespace Plugin {
         bool stand_alone;
 
         /**
-        * Enable diagnostic mode 
+        * Enable diagnostic mode
         */
         bool diagnostic_enabled;
         /**
@@ -326,7 +326,7 @@ namespace Plugin {
 
     private:
         /**
-        * These methods print specific diagnostics for collector plugin and 
+        * These methods print specific diagnostics for collector plugin and
         * other information such as "contact us" and "runetime details"
         */
         void print_contact_us();
@@ -353,7 +353,9 @@ namespace Plugin {
         Config config;
     };
 
-
+    namespace Proxy {
+        class StreamCollectorImpl;
+    }
 
     /**
     * The interface for a stream collector plugin.
@@ -365,68 +367,76 @@ namespace Plugin {
         Type GetType() const final;
         StreamCollectorInterface* IsStreamCollector() final;
 
-        void SetMaxCollectDuration(std::chrono::seconds maxCollectDuration) {
-            _max_collect_duration = maxCollectDuration;
-        }
-        void SetMaxCollectDuration(int64_t maxCollectDuration) {
-            _max_collect_duration = std::chrono::seconds(maxCollectDuration);
-        }
-        std::chrono::seconds GetMaxCollectDuration() {
-            return _max_collect_duration;
-        }
-
-        void SetMaxMetricsBuffer(int64_t maxMetricsBuffer) {
-            _max_metrics_buffer = maxMetricsBuffer;
-        }
-        int64_t GetMaxMetricsBuffer() {
-            return _max_metrics_buffer;
-        }
-
         /*
         * (inherited from PluginInterface)
         */
         virtual const ConfigPolicy get_config_policy() = 0;
 
+        /*
+        * get_metric_types should report all the metrics this plugin can collect
+        */
         virtual std::vector<Metric> get_metric_types(Config cfg) = 0;
 
-        /* StreamMetrics allows the plugin to send/receive metrics on a channel
-        * Arguments are (in order):
-        *
-        * A channel for metrics into the plugin from Snap -- which
-        * are the metric types snap is requesting the plugin to collect.
-        *
-        * A channel for metrics from the plugin to Snap -- the actual
-        * collected metrics from the plugin.
-        *  
-        * A channel for error strings that the library will report to snap
-        * as task errors.
+        /*
+        * get_metrics_in is given a list of metrics to collect.
+        * The plugin should save it and send back those metrics while streaming.
+        */
+        virtual void get_metrics_in(std::vector<Plugin::Metric> &metsIn) = 0;
+
+        /*
+        * StreamMetrics allows the plugin to send/receive metrics
         */
         virtual void stream_metrics() = 0;
 
-        virtual std::vector<Plugin::Metric> put_metrics_out() = 0;
-        virtual std::string put_err_msg() = 0;
-        virtual void get_metrics_in(std::vector<Plugin::Metric> &metsIn) = 0;
-        virtual bool put_mets() = 0;
-        virtual bool put_err() = 0;
-        virtual void set_put_mets(const bool &putMets) = 0;
-        virtual void set_put_err(const bool &putErr) = 0;
-        virtual void set_context_cancelled(const bool &contextCancelled) = 0;
-        virtual bool context_cancelled() = 0;
+        /**
+        * callback functions for the plugin to send messages (metrics or errors)
+        * back to Snap while the plugin is streaming, or to get information from
+        * Snap
+        *
+        * send_metrics support vector of metrics, vector of pointers to metrics,
+        * or vector of underlying rpc::Metric pointer
+        */
+        void send_metrics(const std::vector<Plugin::Metric>& metrics);
+        void send_metrics(const std::vector<Plugin::Metric*>& metrics);
+        void send_metrics(const std::vector<rpc::Metric*>& metrics);
+
+        void send_error_message(std::string msg);
+        bool context_cancelled();
+
+        /**
+        * _max_collect_duration member getter and setters
+        */
+        void SetMaxCollectDuration(int64_t maxCollectDuration);
+        void SetMaxCollectDuration(std::chrono::seconds maxCollectDuration);
+        std::chrono::seconds GetMaxCollectDuration();
+
+        /**
+        * _max_metrics_buffer member getter and setters
+        */
+        void SetMaxMetricsBuffer(size_t maxMetricsBuffer);
+        size_t GetMaxMetricsBuffer();
 
     private:
         /**
         * sets the maximum duration (always greater than 0s) between collections
-        * before metrics are sent. Defaults to 10s what means that after 10 seconds 
+        * before metrics are sent. Defaults to 10s what means that after 10 seconds
         * no new metrics are received, the plugin should send whatever data it has
         * in the buffer instead of waiting longer. (e.g. 5s)
         */
         std::chrono::seconds _max_collect_duration;
-        
+
         /**
         * maximum number of metrics the plugin is buffering before sending metrics.
         * Defaults to zero what means send metrics immediately
         */
-        int64_t _max_metrics_buffer;
+        size_t _max_metrics_buffer;
+
+        /**
+        * StreamCollector proxy implementation to forward messages from the plugin
+        * back to Snap. It is set automatically when the plugin starts streaming
+        */
+        friend Proxy::StreamCollectorImpl;
+        Proxy::StreamCollectorImpl* _stream_collector_impl = nullptr;
     };
 
     /**
@@ -442,4 +452,4 @@ namespace Plugin {
     void start_processor(int argc, char **argv, ProcessorInterface* plg, Meta& meta);
     void start_publisher(int argc, char **argv, PublisherInterface* plg, Meta& meta);
     void start_stream_collector(int argc, char **argv, StreamCollectorInterface* plg, Meta& meta);
-};  // namespace Plugin
+}  // namespace Plugin

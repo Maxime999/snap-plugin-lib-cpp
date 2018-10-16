@@ -17,7 +17,6 @@ limitations under the License.
 
 #include <boost/any.hpp>
 #include <json.hpp>
-#include <spdlog/spdlog.h>
 
 #include "snap/flags.h"
 
@@ -55,7 +54,7 @@ namespace Plugin {
                                                         {"Pprof", "pprof"}};
     bool isFlag(std::string flag);
     char* copyStringStream(std::stringstream& src);
-    std::shared_ptr<spd::logger> _logger = spdlog::stderr_logger_mt("jsonhelpers"); 
+    std::shared_ptr<spd::logger> _logger = spdlog::stderr_logger_mt("jsonhelpers");
 
   }
 }
@@ -75,7 +74,7 @@ int Plugin::Flags::addDefaultCommandFlags() {
             ("help,h", "Display available command-line options")
             ("version,v", "Print the version");
         return 0;
-    } 
+    }
     catch (std::exception &e) {
         _logger->error(e.what());
         return 1;
@@ -90,7 +89,7 @@ int Plugin::Flags::addDefaultGlobalFlags() {
             ("config", po::value<std::string>()->composing(), "Config to use in JSON format")
             ("port", po::value<std::string>(&_listen_port)->default_value(LISTEN_PORT), "Port GRPC will listen on")
             ("addr", po::value<std::string>(&_listen_addr)->default_value(LISTEN_ADDR), "addr GRPC will listen on")
-            ("log-level", po::value<int>(&_log_level)->default_value(LOG_LEVEL), 
+            ("log-level", po::value<int>(&_log_level)->default_value(LOG_LEVEL),
                 "0:Panic 1:Fatal 2:Error 3:Warn 4:Info 5:Debug")
             ("pprof", "Enable pprof")
             ("tls", "Enable TLS")
@@ -164,7 +163,7 @@ int Plugin::Flags::addBoolFlag(const char *optionName, const char *description,
             return 1;
         }
         return 0;
-    } 
+    }
     catch (std::exception &e) {
         _logger->error(e.what());
         return 1;
@@ -195,7 +194,7 @@ int Plugin::Flags::addIntFlag(const char *optionName, const char *description,
             return 1;
         }
         return 0;
-    } 
+    }
     catch (std::exception &e) {
         _logger->error(e.what());
         return 1;
@@ -227,7 +226,7 @@ int Plugin::Flags::addStringFlag(const char *optionName, const char *description
             return 1;
         }
         return 0;
-    } 
+    }
     catch (std::exception &e) {
         _logger->error(e.what());
         return 1;
@@ -235,7 +234,7 @@ int Plugin::Flags::addStringFlag(const char *optionName, const char *description
 }
 
 // Declare group of options allowed only on command line
-int Plugin::Flags::AddFlag(const char * optionName, const char * description, 
+int Plugin::Flags::AddFlag(const char * optionName, const char * description,
                             FlagType flagType, Plugin::Flags::FlagLevel flagLevel) {
     try {
         switch (flagType) {
@@ -250,7 +249,7 @@ int Plugin::Flags::AddFlag(const char * optionName, const char * description,
             return 1;
         }
         return 0;
-    } 
+    }
     catch (std::exception &e) {
         _logger->error(e.what());
         return 1;
@@ -328,7 +327,7 @@ int Plugin::Flags::parseCommandLineFlags(const int &argc, char **argv) {
     }
 }
 
-/* 
+/*
  * The Go plugin lib assumes that the first item command line arguement might
  * be JSON. This function checks for JSON and does the following:
  *
@@ -399,11 +398,11 @@ json Plugin::JsonHelpers::removeUnusedFlags(json j) {
 void Plugin::JsonHelpers::generateCommandLineFromJson(json jsonArgs, char** argv, int index) {
   std::stringstream temp_ss;
   for (json::iterator it = jsonArgs.begin(); it != jsonArgs.end(); it++) {
-    temp_ss = std::stringstream();
+    temp_ss.str(std::string());
     temp_ss << "--";
     temp_ss << _pretty_flags[it.key()];
     argv[index++] = Plugin::JsonHelpers::copyStringStream(temp_ss);
-    temp_ss = std::stringstream();
+    temp_ss.str(std::string());
     temp_ss << it.value();
     argv[index++] = copyStringStream(temp_ss);
   }
@@ -544,13 +543,13 @@ void Plugin::Flags::SetFlagsLogLevel(const int &logLevel /*=2*/) {
         case 0/*Panic*/:
             _logger->set_level(spd::level::critical);
             break;
-        case 1/*Fatal*/: 
+        case 1/*Fatal*/:
             _logger->set_level(spd::level::critical);
             break;
         case 2/*Error*/:
             _logger->set_level(spd::level::err);
             break;
-        case 3/*Warn*/: 
+        case 3/*Warn*/:
             _logger->set_level(spd::level::warn);
             break;
         case 4/*Info*/:
@@ -574,7 +573,7 @@ const rpc::ConfigMap Plugin::Flags::GenerateConfigMapFromCommandJson() {
    const char * conf = "config";
    if (_flags.count(conf)) {
        json j = json::parse(boost::any_cast<std::string>(_flags["config"].value()));
-       
+
        for (json::iterator element = j.begin(); element != j.end(); ++element) {
            std::string json_key = element.key();
            auto& json_value = element.value();

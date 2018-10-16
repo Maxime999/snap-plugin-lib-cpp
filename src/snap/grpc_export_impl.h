@@ -21,7 +21,7 @@ limitations under the License.
 
 #include <grpc++/grpc++.h>
 #include <json.hpp>
-#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_sinks.h>
 
 #include "snap/config.h"
 #include "snap/metric.h"
@@ -64,7 +64,7 @@ namespace Plugin {
         /* blocking method - waits for the server to finish. */
         void doJoin();
 
-        int start_stand_alone(const int &httpPort);
+        void start_stand_alone(const int &httpPort);
     private:
         bool file_exists(const std::string);
         std::string readFile(std::string);

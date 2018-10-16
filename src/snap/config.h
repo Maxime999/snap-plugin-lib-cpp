@@ -158,6 +158,10 @@ namespace Plugin {
 
         Config& operator=(const Config& that);
 
+        bool has_bool_key(const std::string& key) const;
+        bool has_int_key(const std::string& key) const;
+        bool has_string_key(const std::string& key) const;
+
         bool get_bool(const std::string& key) const;
         int get_int(const std::string& key) const;
         std::string get_string(const std::string& key) const;

@@ -17,7 +17,9 @@
 # limitations under the License.
 
 snaptel plugin load bin/test-collector-rando
+snaptel plugin load bin/test-streaming-collector-rando
 snaptel plugin load bin/test-processor-graffiti
 snaptel plugin load bin/test-publisher-log
-snaptel task create -t task.json
 
+snaptel task create -t task.json
+snaptel task create -t task-stream.json

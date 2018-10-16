@@ -248,7 +248,7 @@ Plugin::Config Metric::get_config() const {
     return config;
 }
 
-const rpc::Metric* Metric::get_rpc_metric_ptr() const {
+rpc::Metric* Metric::get_rpc_metric_ptr() const {
     return rpc_metric_ptr;
 }
 
@@ -368,7 +368,7 @@ void NamespaceElement::set_value(std::string v) {
 }
 
 void NamespaceElement::set_name(std::string n) {
-    this->name = n;    
+    this->name = n;
 }
 
 void NamespaceElement::set_description(std::string d) {

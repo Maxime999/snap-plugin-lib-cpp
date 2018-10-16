@@ -40,7 +40,6 @@ using grpc::Server;
 using grpc::ServerBuilder;
 
 static void start_plugin(Plugin::PluginInterface* plugin, const Plugin::Meta& meta);
-int start_stand_alone(Plugin::PluginInterface* plugin, const Plugin::Meta& meta);
 
 function<unique_ptr<Plugin::PluginExporter, function<void(Plugin::PluginExporter*)>>()> Plugin::LibSetup::exporter_provider = []{ return std::unique_ptr<PluginExporter>(new GRPCExporter()); };
 
@@ -129,6 +128,66 @@ Plugin::Type Plugin::StreamCollectorInterface::GetType() const {
 Plugin::StreamCollectorInterface* Plugin::StreamCollectorInterface::IsStreamCollector() {
     return this;
 }
+
+
+void Plugin::StreamCollectorInterface::SetMaxCollectDuration(int64_t maxCollectDuration) {
+    SetMaxCollectDuration(std::chrono::seconds(maxCollectDuration));
+}
+void Plugin::StreamCollectorInterface::SetMaxCollectDuration(std::chrono::seconds maxCollectDuration) {
+    _max_collect_duration = maxCollectDuration;
+    if (_stream_collector_impl)
+        _stream_collector_impl->SetMaxCollectDuration(maxCollectDuration);
+}
+std::chrono::seconds Plugin::StreamCollectorInterface::GetMaxCollectDuration() {
+    return _max_collect_duration;
+}
+
+void Plugin::StreamCollectorInterface::SetMaxMetricsBuffer(size_t maxMetricsBuffer) {
+    _max_metrics_buffer = maxMetricsBuffer;
+    if (_stream_collector_impl)
+        _stream_collector_impl->SetMaxMetricsBuffer(maxMetricsBuffer);
+}
+size_t Plugin::StreamCollectorInterface::GetMaxMetricsBuffer() {
+    return _max_metrics_buffer;
+}
+
+
+void Plugin::StreamCollectorInterface::send_metrics(const std::vector<Plugin::Metric>& metrics) {
+    if (_stream_collector_impl)
+        _stream_collector_impl->sendMetrics(metrics);
+    else
+        std::cout << "Error: no viable StreamCollector implemetation" << std::endl;
+}
+
+void Plugin::StreamCollectorInterface::send_metrics(const std::vector<Plugin::Metric*>& metrics) {
+    if (_stream_collector_impl)
+        _stream_collector_impl->sendMetrics(metrics);
+    else
+        std::cout << "Error: no viable StreamCollector implemetation" << std::endl;
+}
+
+void Plugin::StreamCollectorInterface::send_metrics(const std::vector<rpc::Metric*>& metrics) {
+    if (_stream_collector_impl)
+        _stream_collector_impl->sendMetrics(metrics);
+    else
+        std::cout << "Error: no viable StreamCollector implemetation" << std::endl;
+}
+
+void Plugin::StreamCollectorInterface::send_error_message(std::string msg) {
+    if (_stream_collector_impl)
+        _stream_collector_impl->sendErrorMessage(msg);
+    else
+        std::cout << "Error: no viable StreamCollector implemetation" << std::endl;
+}
+
+bool Plugin::StreamCollectorInterface::context_cancelled() {
+    if (_stream_collector_impl)
+        return _stream_collector_impl->contextCancelled();
+    else
+        std::cout << "Error: no viable StreamCollector implemetation" << std::endl;
+    return true;
+}
+
 
 void Plugin::start_collector(int argc, char **argv, CollectorInterface* collector,
                              Meta& meta) {
@@ -220,12 +279,12 @@ void Plugin::DiagnosticPrinter::show() {
 }
 
 void Plugin::DiagnosticPrinter::print_contact_us() {
-    os << "\nThank you for using this Snap plugin. If you have questions or are running\n" 
-            "into errors, please contact us on Github (github.com/intelsdi-x/snap) or\n" 
-            "our Slack channel (intelsdi-x.herokuapp.com).\n" 
-            "The repo for this plugin can be found: github.com/intelsdi-x/<plugin-name>.\n" 
-            "When submitting a new issue on Github, please include this diagnostic\n" 
-            "print out so that we have a starting point for addressing your question.\n" 
+    os << "\nThank you for using this Snap plugin. If you have questions or are running\n"
+            "into errors, please contact us on Github (github.com/intelsdi-x/snap) or\n"
+            "our Slack channel (intelsdi-x.herokuapp.com).\n"
+            "The repo for this plugin can be found: github.com/intelsdi-x/<plugin-name>.\n"
+            "When submitting a new issue on Github, please include this diagnostic\n"
+            "print out so that we have a starting point for addressing your question.\n"
             "Thank you.\n\n";
 }
 
@@ -392,7 +451,7 @@ void Plugin::DiagnosticPrinter::print_string_policy(ConfigPolicy& cpolicy) {
         for (auto& rule : str_policy.second.rules()) {
             std::string default_ = (rule.second.has_default()) ? rule.second.default_() : "";
             os << setw(40) << str_policy.first
-               << setw(25) << rule.first 
+               << setw(25) << rule.first
                << setw(20) << "string"
                << setw(20) << std::boolalpha << rule.second.required()
                << setw(20) << default_

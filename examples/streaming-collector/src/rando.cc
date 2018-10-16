@@ -61,10 +61,7 @@ std::map<std::string, int> metric_types{
     {"string", supported_types::string}
 };
 
-Rando::Rando() : _put_mets(false),
-                 _put_err(false),
-                 _get_mets(false),
-                 _context_cancelled(false) {}
+Rando::Rando() {}
 
 const ConfigPolicy Rando::get_config_policy() {
     ConfigPolicy policy;
@@ -73,17 +70,17 @@ const ConfigPolicy Rando::get_config_policy() {
         "username",
         {"root", false}
     });
-    policy.add_rule({"intel", "cpp", "mock", "rando"},
+    policy.add_rule({"intel", "cpp", "mock", "rando_stream"},
     Plugin::StringRule{
         "password",
         {"h4ck3r", true}
     });
-    policy.add_rule({"intel", "cpp", "mock", "rando"},
+    policy.add_rule({"intel", "cpp", "mock", "rando_stream"},
     Plugin::IntRule{
         "MaxCollectDuration",
         {10, true}
     });
-    policy.add_rule({"intel", "cpp", "mock", "rando"},
+    policy.add_rule({"intel", "cpp", "mock", "rando_stream"},
     Plugin::IntRule{
         "MaxMetricsBuffer",
         {0, true}
@@ -92,86 +89,65 @@ const ConfigPolicy Rando::get_config_policy() {
 }
 
 std::vector<Metric> Rando::get_metric_types(Config cfg) {
-    std::vector<Metric> metrics = { Metric(Namespace({"intel","cpp","mock","rando"}).add_static_element("int32"), "example_unit","example_description" ),
-                                    Metric(Namespace({"intel","cpp","mock","rando"}).add_static_element("int64"),"",""),
-                                    Metric(Namespace({"intel","cpp","mock","rando"}).add_static_element("string"),"",""),
-                                    Metric(Namespace({"intel","cpp","mock","rando"}).add_static_element("boolean"),"",""),
+    std::vector<Metric> metrics = { Metric(Namespace({"intel","cpp","mock","rando_stream"}).add_static_element("int32"), "example_unit","example_description" ),
+                                    Metric(Namespace({"intel","cpp","mock","rando_stream"}).add_static_element("int64"),"",""),
+                                    Metric(Namespace({"intel","cpp","mock","rando_stream"}).add_static_element("string"),"",""),
+                                    Metric(Namespace({"intel","cpp","mock","rando_stream"}).add_static_element("boolean"),"",""),
                                     };
     return metrics;
 }
 
 void Rando::stream_metrics() {
-    auto stream = std::async(std::launch::async, &Rando::stream_it, this);
-    drain_metrics();
-}
+    while (!this->context_cancelled()) {
+        std::unique_lock<std::mutex> lock(_m);
+        std::vector<Metric>::iterator mets_iter;
+        unsigned int seed = time(NULL);
+        int random_value = rand_r(&seed) % 1000;
 
-void Rando::stream_it() {
-    while (!_context_cancelled) {
-        if (!_metrics_out.empty() && !_get_mets && !_put_mets && !_put_err) {
-            std::vector<Metric>::iterator mets_iter;
-            unsigned int seed = time(NULL);
-            int random_value = rand_r(&seed) % 1000;
+        for (mets_iter = _metrics.begin(); mets_iter != _metrics.end(); mets_iter++) {
+            std::string ns_mts_type = mets_iter->ns()[4].get_value();
+            int mts_type = metric_types[ns_mts_type];
 
-            for (mets_iter = _metrics_out.begin(); mets_iter != _metrics_out.end(); mets_iter++) {
-                std::string ns_mts_type = mets_iter->ns()[4].get_value();
-                int mts_type = metric_types[ns_mts_type];
-
-                switch(mts_type) {
-                case supported_types::float32:
-                    mets_iter->set_data((float)random_value);
-                    break;
-                case supported_types::float64:
-                    mets_iter->set_data((double)random_value);
-                    break;
-                case supported_types::int32:
-                    mets_iter->set_data((int32_t)random_value);
-                    break;
-                case supported_types::int64:
-                    mets_iter->set_data((int64_t)random_value);
-                    break;
-                case supported_types::uint32:
-                    mets_iter->set_data((uint32_t)random_value);
-                    break;
-                case supported_types::uint64:
-                    mets_iter->set_data((uint64_t)random_value);
-                    break;
-                case supported_types::boolean:
-                    mets_iter->set_data(random_value%2 ? true : false);
-                    break;
-                case supported_types::string:
-                    mets_iter->set_data(std::to_string(random_value));
-                    break;
-                default:
-                    _err_msg.assign("Invalid type");
-                    _put_err = true;
-                }
-                mets_iter->set_timestamp();
+            switch(mts_type) {
+            case supported_types::float32:
+                mets_iter->set_data((float)random_value);
+                break;
+            case supported_types::float64:
+                mets_iter->set_data((double)random_value);
+                break;
+            case supported_types::int32:
+                mets_iter->set_data((int32_t)random_value);
+                break;
+            case supported_types::int64:
+                mets_iter->set_data((int64_t)random_value);
+                break;
+            case supported_types::uint32:
+                mets_iter->set_data((uint32_t)random_value);
+                break;
+            case supported_types::uint64:
+                mets_iter->set_data((uint64_t)random_value);
+                break;
+            case supported_types::boolean:
+                mets_iter->set_data(random_value%2 ? true : false);
+                break;
+            case supported_types::string:
+                mets_iter->set_data(std::to_string(random_value));
+                break;
+            default:
+                send_error_message("Invalid type: " + ns_mts_type);
             }
-            _put_mets = true;
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            mets_iter->set_timestamp();
         }
-        else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-        }
+        send_metrics(_metrics);
+        lock.unlock();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 }
 
-void Rando::drain_metrics() {
-    while(!_context_cancelled) {
-        if (_get_mets && !_put_mets && !_put_err) {
-            _err_msg.clear();
-            _metrics_out.clear();
-            std::copy(_metrics_in.begin(), _metrics_in.end(), std::back_inserter(_metrics_out));
-            _get_mets = false;
-        }
-    }
-}
 
 int main(int argc, char **argv) {
-
     Meta meta(Type::StreamCollector, "rando", 1, RpcType::GRPCStream);
     meta.concurrency_count = 1;
     Rando plg;
     start_stream_collector(argc, argv, &plg, meta);
-
 }

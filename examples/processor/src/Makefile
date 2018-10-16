@@ -26,8 +26,8 @@ BDIR=$(EROOT)/bin
 CC=g++
 IDIRS=-I.
 LDIRS=-L.
-CFLAGS=-std=c++1y
-LIBS=-Wl,--start-group $(SNAPLIBS)/libsnap.a $(SNAPLIBS)/libgrpc.a $(SNAPLIBS)/libgrpc++.a $(SNAPLIBS)/libprotobuf.a -Wl,--end-group -lboost_program_options -lboost_system -lboost_thread -lcppnetlib-uri -lcppnetlib-client-connections -lcppnetlib-server-parsers -lz -lpthread -lssl -lcrypto -lboost_filesystem
+CFLAGS=-std=c++1y -g
+LIBS=-Wl,--start-group $(SNAPLIBS)/libsnap.a $(SNAPLIBS)/libgrpc.a $(SNAPLIBS)/libgrpc++.a $(SNAPLIBS)/libprotobuf.a -Wl,--end-group -lboost_program_options -lboost_system -lboost_thread -lcppnetlib-uri -lcppnetlib-client-connections -lcppnetlib-server-parsers -lz -lpthread -lssl -lcrypto -lboost_filesystem -lrt
 FILES := $(wildcard *.cc)
 
 all: $(TARGET)				# Build all targets
@@ -36,12 +36,12 @@ vars:					# Show Makefile variable values
 	@echo "  PLUGINTYPE "$(PLUGINTYPE)
 	@echo "        NAME "$(NAME)
 	@echo "      TARGET "$(TARGET)
-	@echo "" 
-	@echo "    SNAPLIBS "$(SNAPLIBS) 
-	@echo "     ICCROOT "$(ICCROOT) 
+	@echo ""
+	@echo "    SNAPLIBS "$(SNAPLIBS)
+	@echo "     ICCROOT "$(ICCROOT)
 	@echo "       EROOT "$(EROOT)
 	@echo "        BDIR "$(BDIR)
-	@echo "" 
+	@echo ""
 	@echo "          CC "$(CC)
 	@echo "       IDIRS "$(IDIRS)
 	@echo "       LDIRS "$(LDIRS)

@@ -47,6 +47,7 @@ using Plugin::Metric;
 using Plugin::PluginException;
 using Plugin::Proxy::StreamCollectorImpl;
 
+
 StreamCollectorImpl::StreamCollectorImpl(Plugin::StreamCollectorInterface* plugin) :
                                         _stream_collector(plugin) {
     _plugin_impl_ptr = new PluginImpl(plugin);
@@ -54,6 +55,7 @@ StreamCollectorImpl::StreamCollectorImpl(Plugin::StreamCollectorInterface* plugi
     _err_reply = new rpc::ErrReply();
     _collect_reply.set_allocated_metrics_reply(_metrics_reply);
     _collect_reply.set_allocated_error(_err_reply);
+    _copied_metrics_count = 0;
     _max_collect_duration = plugin->GetMaxCollectDuration();
     _max_metrics_buffer = plugin->GetMaxMetricsBuffer();
 }
@@ -108,21 +110,30 @@ Status StreamCollectorImpl::Ping(ServerContext* context, const Empty* req,
 Status StreamCollectorImpl::StreamMetrics(ServerContext* context,
                 ServerReaderWriter<CollectReply, CollectArg>* stream) {
     try {
-        std::string task_id = "not-set";
-        //TODO: Receive communicated TaskID to correlate snap events to the plugin events
-        //      see PR#90 in snap-plugin-lib-go
+        _current_context = context;
+        _current_stream = stream;
+        _stream_collector->_stream_collector_impl = this;
+        _max_collect_duration = _stream_collector->GetMaxCollectDuration();
+        _max_metrics_buffer = _stream_collector->GetMaxMetricsBuffer();
 
-        auto sendch = std::async(std::launch::async, &StreamCollectorImpl::metricSend,
-                                this, task_id, context, stream);
-        auto recvch = std::async(std::launch::async, &StreamCollectorImpl::streamRecv,
-                                this, task_id, context, stream);
-        auto errch = std::async(std::launch::async, &StreamCollectorImpl::errorSend,
-                                this, context, stream);
+        CollectArg collectMets;
+        do {
+            _current_stream->Read(&collectMets);
+            receiveReply(&collectMets);
+        } while (!collectMets.has_metrics_arg());
 
-        auto do_puts = std::async(std::launch::async, &StreamCollectorImpl::PutSendMetsAndErrMsg,
-                                this, context);
+        auto recvch = std::async(std::launch::async, &StreamCollectorImpl::streamRecv, this);
+        _collect_duration_start = std::chrono::steady_clock::now();
 
         _stream_collector->stream_metrics();
+
+        _stream_collector->_stream_collector_impl = nullptr;
+        _current_context = nullptr;
+        _current_stream = nullptr;
+
+        _metrics_reply->mutable_metrics()->ExtractSubrange(_copied_metrics_count, _metrics_reply->metrics_size() - _copied_metrics_count, nullptr);
+        _metrics_reply->clear_metrics();
+        _copied_metrics_count = 0;
 
         return Status::OK;
     } catch(PluginException &e) {
@@ -130,174 +141,136 @@ Status StreamCollectorImpl::StreamMetrics(ServerContext* context,
     }
 }
 
-bool StreamCollectorImpl::PutSendMetsAndErrMsg(ServerContext* context) {
-    std::vector<Metric> recv_mets, send_mets;
-    while(!context->IsCancelled()) {
-        if (_stream_collector->put_mets()) {
-            _sendChan.put(_stream_collector->put_metrics_out());
-            _stream_collector->set_put_mets(false);
-        }
-        if (_stream_collector->put_err()) {
-            _errChan.put(_stream_collector->put_err_msg());
-            _stream_collector->set_put_err(false);
-        }
-        if (_recvChan.get(recv_mets, false)) {
-            _stream_collector->get_metrics_in(recv_mets);
-        }
-    }
-    _stream_collector->set_context_cancelled(true);
+
+template<>
+rpc::Metric* StreamCollectorImpl::get_rpc_metric(const Plugin::Metric& met) const {
+    return met.get_rpc_metric_ptr();
 }
 
-bool StreamCollectorImpl::errorSend(ServerContext* context,
-                                    ServerReaderWriter<CollectReply, CollectArg>* stream) {                            
-    try {
-        while (!context->IsCancelled()) {
-            std::string err;
-            if (_errChan.get(err)) {
-                _err_reply->set_error(err);
-                stream->Write(_collect_reply);
-                err.clear();
+template<>
+rpc::Metric* StreamCollectorImpl::get_rpc_metric(Plugin::Metric* const& met) const {
+    return met->get_rpc_metric_ptr();
+}
+
+template<>
+rpc::Metric* StreamCollectorImpl::get_rpc_metric(rpc::Metric* const& met) const {
+    return met;
+}
+
+template<typename T>
+void StreamCollectorImpl::sendMetrics(const std::vector<T>& metrics) {
+    // Metrics are sent synchronously, so we try ot to copy them as little sa possible
+    if (!_current_context->IsCancelled()) {
+        // If _max_metrics_buffer == 0 we send all metrics we have directly
+        if (_max_metrics_buffer == 0) {
+            for (const T& met : metrics)
+                _metrics_reply->mutable_metrics()->AddAllocated(get_rpc_metric(met));
+            sendAndClearMetricsReply();
+        }
+        // Otherwise we first send as much as possible chunks of #_max_metrics_buffer metrics
+        else {
+            size_t index = 0;
+            size_t chunk_count = (_metrics_reply->metrics_size() + metrics.size()) / _max_metrics_buffer;
+            for (size_t i = 0; i < chunk_count; i++) {
+                while (_metrics_reply->metrics_size() < _max_metrics_buffer) {
+                    _metrics_reply->mutable_metrics()->AddAllocated(get_rpc_metric(metrics[index]));
+                    index++;
+                }
+                sendAndClearMetricsReply();
             }
-        }
-        _errChan.close();
-        _stream_collector->set_context_cancelled(true);
-        return true;
-    } catch (PluginException &e) {
-        std::cout << "Error" << std::endl;
-        return false;
-    }
-}
 
-bool StreamCollectorImpl::metricSend(const std::string &taskID,
-                                    ServerContext* context,
-                                    ServerReaderWriter<CollectReply, CollectArg>* stream) {
-    try {
-        std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
-        while (!context->IsCancelled()) {
-            std::vector<Metric> send_mets;
-            if (_sendChan.get(send_mets)) {
-                if (!send_mets.empty()) {
-                    for (Metric met : send_mets) {
-                        *_metrics_reply->add_metrics() = *met.get_rpc_metric_ptr();
-                        if (_metrics_reply->metrics_size() == _max_metrics_buffer) {
-                            sendReply(taskID, stream);
-                            _metrics_reply->clear_metrics();
-                            start = std::chrono::system_clock::now();
-                        }
-                    }
-                    //_max_metrics_buffer == 0, send all available metrics
-                    if (_max_metrics_buffer == 0) {
-                        sendReply(taskID, stream);
-                        _metrics_reply->clear_metrics();
-                        start = std::chrono::system_clock::now();
-                    }
+            // If _max_collect_duration timer has expired we send the remaining metrics directly
+            if (std::chrono::steady_clock::now() - _collect_duration_start >= _max_collect_duration) {
+                while (index < metrics.size()) {
+                    _metrics_reply->mutable_metrics()->AddAllocated(get_rpc_metric(metrics[index]));
+                    index++;
+                }
+                sendAndClearMetricsReply();
+            }
+            // Otherwise we copy (and take ownership of) the remaning metrics to be sent later
+            else {
+                while (index < metrics.size()) {
+                    *_metrics_reply->add_metrics() = *get_rpc_metric(metrics[index]);
+                    _copied_metrics_count++;
+                    index++;
                 }
             }
-
-            if ((std::chrono::system_clock::now() - start) >= _max_collect_duration) {
-                sendReply(taskID, stream);
-                _metrics_reply->clear_metrics();
-               start = std::chrono::system_clock::now();
-            }
         }
-        _sendChan.close();
-        _stream_collector->set_context_cancelled(true);
-        return true;
-    } catch (PluginException &e) {
-        std::cout << "Error" << std::endl;
-        return false;
     }
 }
 
-bool StreamCollectorImpl::streamRecv(const std::string &taskID,
-                                    ServerContext* context,
-                                    ServerReaderWriter<CollectReply, CollectArg>* stream) {
+template void StreamCollectorImpl::sendMetrics(const std::vector<Plugin::Metric>& metrics);
+template void StreamCollectorImpl::sendMetrics(const std::vector<Plugin::Metric*>& metrics);
+template void StreamCollectorImpl::sendMetrics(const std::vector<rpc::Metric*>& metrics);
+
+
+void StreamCollectorImpl::sendErrorMessage(const std::string& msg) {
     try {
-        while (!context->IsCancelled()) {
-            std::vector<Metric> recv_mets;
+        if (!_current_context->IsCancelled()) {
+            _err_reply->set_error(msg);
+            _current_stream->Write(_collect_reply);
+        }
+    } catch (PluginException &e) {
+        std::cout << "Error" << std::endl;
+    }
+}
+
+bool StreamCollectorImpl::contextCancelled() {
+    return _current_context->IsCancelled();
+}
+
+
+bool StreamCollectorImpl::sendAndClearMetricsReply() {
+    if (_metrics_reply->metrics_size() == 0)
+        return true;
+    bool success = false;
+    try {
+        success = _current_stream->Write(_collect_reply);
+    } catch (PluginException &e) {
+        success = false;
+        std::cout << "Error" << std::endl;
+    }
+    // Clear _metrics_reply:
+    // metrics which were copied (at the beginning of the array) are released,
+    // metrics which were not copied are simply extracted (they are owned by the plugin)
+    _metrics_reply->mutable_metrics()->ExtractSubrange(_copied_metrics_count, _metrics_reply->metrics_size() - _copied_metrics_count, nullptr);
+    _metrics_reply->clear_metrics();
+    _copied_metrics_count = 0;
+    _collect_duration_start = std::chrono::steady_clock::now();
+    return success;
+}
+
+void StreamCollectorImpl::receiveReply(const rpc::CollectArg* reply) {
+    if (reply->maxcollectduration() > 0) {
+        _max_collect_duration = std::chrono::seconds(reply->maxcollectduration());
+        _stream_collector->SetMaxCollectDuration(_max_collect_duration);
+    }
+    if (reply->maxmetricsbuffer() > 0) {
+        _max_metrics_buffer = reply->maxmetricsbuffer();
+        _stream_collector->SetMaxMetricsBuffer(_max_metrics_buffer);
+    }
+
+    if (reply->has_metrics_arg()) {
+        std::vector<Metric> recv_mets;
+        RepeatedPtrField<rpc::Metric> rpc_mets = reply->metrics_arg().metrics();
+
+        for (int i = 0; i < rpc_mets.size(); i++) {
+            recv_mets.emplace_back(rpc_mets.Mutable(i));
+        }
+        _stream_collector->get_metrics_in(recv_mets);
+    }
+}
+
+bool StreamCollectorImpl::streamRecv() {
+    try {
+        while (!_current_context->IsCancelled()) {
             CollectArg collectMets;
-            stream->Read(&collectMets);
-            
-            if (collectMets.maxcollectduration() > 0) {
-                _max_collect_duration = std::chrono::seconds(collectMets.maxcollectduration());
-            }
-            else {
-                collectMets.set_maxcollectduration(_max_collect_duration.count());
-            }
-            if (collectMets.maxmetricsbuffer() > 0) {
-                _max_metrics_buffer = collectMets.maxmetricsbuffer();            }
-            else {
-                collectMets.set_maxmetricsbuffer(_max_metrics_buffer);            
-            }            
-
-            if (collectMets.has_metrics_arg()) {
-                RepeatedPtrField<rpc::Metric> rpc_mets = collectMets.metrics_arg().metrics();
-
-                for (int i = 0; i < rpc_mets.size(); i++) {
-                    recv_mets.emplace_back(rpc_mets.Mutable(i));
-                }
-                _recvChan.put(recv_mets);
-            }
-        }
-        _recvChan.close();
-        _stream_collector->set_context_cancelled(true);
+            _current_stream->Read(&collectMets);
+            receiveReply(&collectMets);
+       }
         return true;
     } catch (PluginException &e) {
         std::cout << "Error" << std::endl;
         return false;
     }
-}
-
-bool StreamCollectorImpl::sendReply(const std::string &taskID,
-                                    ServerReaderWriter<CollectReply, CollectArg>* stream) {
-    try {
-        if (_collect_reply.metrics_reply().metrics_size() == 0) {
-            std::cout << "No metrics to send" << std::endl;
-            return true;
-        }
-        stream->Write(_collect_reply);
-        return true;
-    } catch (PluginException &e) {
-        std::cout << "Error" << std::endl;
-        return false;
-    }
-}
-
-template <class T>
-void StreamCollectorImpl::StreamChannel<T>::close() {
-    std::unique_lock<std::mutex> lock(_m);
-    _closed = true;
-    _cv.notify_all();
-}
-
-template <class T>
-bool StreamCollectorImpl::StreamChannel<T>::is_closed() {
-    std::unique_lock<std::mutex> lock(_m);
-    return _closed;
-}
-
-template <class T>
-void StreamCollectorImpl::StreamChannel<T>::put(const T &in) {
-    std::unique_lock<std::mutex> lock(_m);
-    
-    if (_closed) throw std::logic_error("put to closed channel");
-    
-    _queue.push_back(in);
-    _cv.notify_one();
-}
-
-template <class T>
-bool StreamCollectorImpl::StreamChannel<T>::get(T &out, bool wait) {
-    std::unique_lock<std::mutex> lock(_m);
-    
-    if (wait) _cv.wait(lock, [&]() { return _closed || !_queue.empty(); });
-    if (_queue.empty()) return false;
-    
-    auto it = std::make_move_iterator(_queue.front().begin()),
-        end = std::make_move_iterator(_queue.front().end());
-
-    std::copy(it, end, std::back_inserter(out));
-
-    _queue.pop_front();
-    return true;
 }

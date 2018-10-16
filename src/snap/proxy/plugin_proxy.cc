@@ -29,18 +29,25 @@ using rpc::GetConfigPolicyReply;
 
 using Plugin::Proxy::PluginImpl;
 
+std::promise<void> PluginImpl::pluginKilled{};
+std::shared_future<void> PluginImpl::pluginKilledLock{PluginImpl::pluginKilled.get_future()};
+
 PluginImpl::PluginImpl(Plugin::PluginInterface* plugin) : plugin(plugin) {}
 
 Status PluginImpl::Ping(ServerContext* context, const Empty* req,
                         ErrReply* resp) {
     _lastPing = std::chrono::system_clock::now();
     // Change to log
-    std::cout << "Heartbeat received at: " << _lastPing << std::endl;
+    std::cerr << "Heartbeat received at: " << _lastPing << std::endl;
+    if (!_heartbeatWatcher.valid() || _heartbeatWatcher.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        _heartbeatWatcher = std::async(std::launch::async, &PluginImpl::HeartbeatWatch, this);
     return Status::OK;
 }
 
 Status PluginImpl::Kill(ServerContext* context, const KillArg* req,
                         ErrReply* resp) {
+    std::cerr << "Kill received at: " << _lastPing << std::endl;
+    PluginImpl::pluginKilled.set_value();
     return Status::OK;
 }
 
@@ -52,22 +59,28 @@ Status PluginImpl::GetConfigPolicy(ServerContext* context, const Empty* req,
 
 void PluginImpl::HeartbeatWatch() {
     _lastPing = std::chrono::system_clock::now();
-    std::cout << "Heartbeat started" << std::endl;
+    std::cerr << "Heartbeat watcher started" << std::endl;
     int count = 0;
-    while (1) {
-        if ((std::chrono::system_clock::now() - _lastPing).count() >= _pingTimeoutDuration.count()) {
+    std::this_thread::sleep_for(_pingTimeoutDuration / 2);
+    while (true) {
+        if ((std::chrono::system_clock::now() - _lastPing) >= _pingTimeoutDuration) {
             ++count;
-            std::cout << "Heartbeat timeout " << count 
-                        << " of " << _pingTimeoutLimit 
+            std::cerr << "Heartbeat timeout " << count
+                        << " of " << _pingTimeoutLimit
                         << ".  (Duration between checks " << _pingTimeoutDuration.count() << ")" << std::endl;
             if (count >= _pingTimeoutLimit) {
-                std::cout << "Heartbeat timeout expired!" << std::endl;
-                exit(0);
+                std::cerr << "Heartbeat timeout expired!" << std::endl;
+                PluginImpl::pluginKilled.set_value();
+                return;
             }
-        } else {
-            std::cout << "Heartbeat timeout reset";
+        } else if (count > 0) {
+            std::cerr << "Heartbeat timeout reset" << std::endl;
             count = 0;
         }
         std::this_thread::sleep_for(_pingTimeoutDuration);
     }
+}
+
+std::shared_future<void> PluginImpl::getPluginKilledLock() {
+    return PluginImpl::pluginKilledLock;
 }

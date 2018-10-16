@@ -148,7 +148,7 @@ namespace Plugin {
         * A dynamic component of the namespace are those elements that contain variable data.
         */
         const std::vector<int> get_dynamic_indexes();
-        
+
         /**
         * Clears vector of NamespaceElements.
         */
@@ -331,7 +331,7 @@ namespace Plugin {
         bool get_bool_data() const;
         const std::string& get_string_data() const;
         Config get_config() const;
-        const rpc::Metric* get_rpc_metric_ptr() const;
+        rpc::Metric* get_rpc_metric_ptr() const;
 
         private:
         rpc::Metric* rpc_metric_ptr;

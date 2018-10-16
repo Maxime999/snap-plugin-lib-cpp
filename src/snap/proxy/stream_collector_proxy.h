@@ -56,97 +56,48 @@ namespace Plugin {
             void SetMaxCollectDuration(std::chrono::seconds maxCollectDuration) {
                 _max_collect_duration = maxCollectDuration;
             }
-            std::chrono::seconds GetMaxCollectDuration () { 
-                return _max_collect_duration; 
+            std::chrono::seconds GetMaxCollectDuration () const {
+                return _max_collect_duration;
             }
-            void SetMaxMetricsBuffer(int64_t maxMetricsBuffer) {
+            void SetMaxMetricsBuffer(size_t maxMetricsBuffer) {
                 _max_metrics_buffer = maxMetricsBuffer;
             }
-            int64_t GetMaxMetricsBuffer() { 
-                return _max_metrics_buffer; 
+            size_t GetMaxMetricsBuffer() const {
+                return _max_metrics_buffer;
             }
 
-            bool errorSend(grpc::ServerContext* context,
-                            grpc::ServerReaderWriter<rpc::CollectReply, rpc::CollectArg>* stream);
-            bool metricSend(const std::string &taskID,
-                            grpc::ServerContext* context,
-                            grpc::ServerReaderWriter<rpc::CollectReply, rpc::CollectArg>* stream);
-            bool streamRecv(const std::string &taskID,
-                            grpc::ServerContext* context,
-                            grpc::ServerReaderWriter<rpc::CollectReply, rpc::CollectArg>* stream);
-            bool sendReply(const std::string &taskID,
-                            grpc::ServerReaderWriter<rpc::CollectReply, rpc::CollectArg>* stream);
-            bool PutSendMetsAndErrMsg(grpc::ServerContext* context);
-            
-            void ErrChanClose() {
-                _errChan.close();
-            }
-            bool ErrChanIsClosed() {
-                return _errChan.is_closed();
-            }
-            void ErrChanPut(const std::string &errMsg) {
-                _errChan.put(errMsg);
-            }
-            bool ErrChanGet(std::string &errMsg) {
-                return _errChan.get(errMsg);
-            }
+            bool sendAndClearMetricsReply();
+            void receiveReply(const rpc::CollectArg* reply);
+            bool streamRecv();
 
-            void SendChanClose() {
-                _sendChan.close();
-            }
-            bool SendChanIsClosed() {
-                return _sendChan.is_closed();
-            }
-            void SendChanPut(const std::vector<Metric> &metrics) {
-                _sendChan.put(metrics);
-            }
-            bool SendChanGet(std::vector<Metric> &metrics) {
-                return _sendChan.get(metrics);
-            }
+            /**
+             * sendMetrics (and get_rpc_metric below) have three specializations
+             * as defined by caller functions in plugin.h: T = vector<Plugin::Metric>,
+             * T = vector<Plugin::Metric*> and T = vector<rpc::Metric*>
+             */
+            template<typename T>
+            void sendMetrics(const std::vector<T>& metrics);
+            void sendErrorMessage(const std::string& msg);
+            bool contextCancelled();
 
-            void RecvChanClose() {
-                _recvChan.close();
-            }
-            bool RecvChanIsClosed() {
-                return _recvChan.is_closed();
-            }
-            void RecvChanPut(const std::vector<Metric> &metrics) {
-                _recvChan.put(metrics);
-            }
-            bool RecvChanGet(std::vector<Metric> &metrics) {
-                return _recvChan.get(metrics);
-            }
-
-            template <class T>
-            class StreamChannel {
-            private:
-                std::list<T> _queue;
-                std::mutex _m;
-                std::condition_variable _cv;
-                bool _closed;
-
-            public:
-                StreamChannel() : _closed(false) {}
-
-                void close();
-                bool is_closed();
-                void put(const T &in);
-                bool get(T &out, bool wait = true);
-            };
 
         private:
             Plugin::StreamCollectorInterface* _stream_collector;
             PluginImpl* _plugin_impl_ptr;
             grpc::ServerContext* _ctx;
-            int64_t _max_metrics_buffer;
+            size_t _max_metrics_buffer;
             std::chrono::seconds _max_collect_duration;
             rpc::CollectReply _collect_reply;
             rpc::MetricsReply *_metrics_reply;
             rpc::ErrReply *_err_reply;
+            size_t _copied_metrics_count;
+            std::chrono::steady_clock::time_point _collect_duration_start;
 
-            StreamChannel<std::vector<Plugin::Metric>> _sendChan;
-            StreamChannel<std::vector<Plugin::Metric>> _recvChan;
-            StreamChannel<std::string> _errChan;          
+            grpc::ServerContext* _current_context;
+            grpc::ServerReaderWriter<rpc::CollectReply, rpc::CollectArg>* _current_stream;
+
+            template<typename T>
+            rpc::Metric* get_rpc_metric(const T& met) const;
         };
     }  // namespace Proxy
 }  // namespace Plugin

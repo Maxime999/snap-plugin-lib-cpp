@@ -16,6 +16,7 @@ limitations under the License.
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+#include <future>
 #include <grpc++/grpc++.h>
 
 #include "snap/rpc/plugin.pb.h"
@@ -58,15 +59,21 @@ namespace Plugin {
 
             void HeartbeatWatch();
 
+            static std::shared_future<void> getPluginKilledLock();
+
         private:
+            static std::promise<void> pluginKilled;
+            static std::shared_future<void> pluginKilledLock;
+
             Plugin::PluginInterface* plugin;
+            std::future<void> _heartbeatWatcher;
             std::chrono::system_clock::time_point _lastPing;
             // PingTimeoutLimit is the number of successively missed pin health checks
             // which must occur before the plugin is stopped
-            int _pingTimeoutLimit = 3;            
+            int _pingTimeoutLimit = 3;
             // PingTimeoutDuration is the duration during which a ping healthcheck
             // should be received
-            std::chrono::seconds _pingTimeoutDuration{3}; 
+            std::chrono::seconds _pingTimeoutDuration{5};
         };
     }  // namespace Proxy
 }  // namespace Plugin

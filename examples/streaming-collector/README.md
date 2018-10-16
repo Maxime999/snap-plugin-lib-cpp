@@ -32,6 +32,7 @@ Proposed files and directory structure:
 ```
 snap-plugin-[plugin-type]-[plugin-name]
  |--src
+  |--[plugin-name].h
   |--[plugin-name].cc
   |--[plugin-name]_test.cc
 ```
@@ -40,6 +41,7 @@ For example:
 ```
 snap-plugin-streaming-collector-rando
  |--src
+  |--rando.h
   |--rando.cc
   |--rando_test.cc
 ```
@@ -82,31 +84,30 @@ These interfaces must be defined for a streaming collector plugin:
         */
         virtual const ConfigPolicy get_config_policy() = 0;
 
+        /*
+        * get_metric_types should report all the metrics this plugin can collect
+        */
         virtual std::vector<Metric> get_metric_types(Config cfg) = 0;
 
-        /* StreamMetrics allows the plugin to send/receive metrics on a channel
-        * Arguments are (in order):
-        *
-        * A channel for metrics into the plugin from Snap -- which
-        * are the metric types snap is requesting the plugin to collect.
-        *
-        * A channel for metrics from the plugin to Snap -- the actual
-        * collected metrics from the plugin.
-        *
-        * A channel for error strings that the library will report to snap
-        * as task errors.
+        /*
+        * get_metrics_in is given a list of metrics to collect.
+        * The plugin should save it and send back those metrics while streaming.
+        */
+        virtual void get_metrics_in(std::vector<Plugin::Metric> &metsIn) = 0;
+
+        /*
+        * StreamMetrics allows the plugin to send/receive metrics
         */
         virtual void stream_metrics() = 0;
 
-        virtual std::vector<Plugin::Metric> put_metrics_out() = 0;
-        virtual std::string put_err_msg() = 0;
-        virtual void get_metrics_in(std::vector<Plugin::Metric> &metsIn) = 0;
-        virtual bool put_mets() = 0;
-        virtual bool put_err() = 0;
-        virtual void set_put_mets(const bool &putMets) = 0;
-        virtual void set_put_err(const bool &putErr) = 0;
-        virtual void set_context_cancelled(const bool &contextCancelled) = 0;
-        virtual bool context_cancelled() = 0;
+        /**
+        * callback functions for the plugin to send messages (metrics or errors)
+        * back to Snap while the plugin is streaming, or to get information from
+        * Snap
+        */
+        void send_metrics(std::vector<Plugin::Metric>& metrics);
+        void send_error_message(std::string msg);
+        bool context_cancelled();
 };
 ```
 
@@ -120,7 +121,7 @@ all that is left to do is to call the appropriate plugin.start_xxx() with your p
 For example with minimum meta data specified:
 
 ```cpp
-    Plugin::start_stream_collector(argc, argv, &plg, Meta{Type::StreamCollector, "rando", 1, &cli, RpcType::GRPCStream});
+    Plugin::start_stream_collector(argc, argv, &plg, Meta{Type::StreamCollector, "rando", 1, RpcType::GRPCStream});
 ```
 
 ### Meta options

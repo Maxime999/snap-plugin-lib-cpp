@@ -62,6 +62,21 @@ Config::Config(rpc::ConfigMap& config) :
 
 Config::~Config() {}
 
+bool Config::has_bool_key(const std::string& key) const {
+    auto bool_map = rpc_map.boolmap();
+    return bool_map.count(key) > 0;
+}
+
+bool Config::has_int_key(const std::string& key) const {
+    auto int_map = rpc_map.intmap();
+    return int_map.count(key) > 0;
+}
+
+bool Config::has_string_key(const std::string& key) const {
+    auto str_map = rpc_map.stringmap();
+    return str_map.count(key) > 0;
+}
+
 bool Config::get_bool(const std::string& key) const {
     auto bool_map = rpc_map.boolmap();
     return bool_map.at(key);

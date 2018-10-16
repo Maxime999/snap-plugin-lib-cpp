@@ -18,7 +18,7 @@ limitations under the License.
 #include <iostream>
 #include <iterator>
 #include <map>
-#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_sinks.h>
 #include <snap/rpc/plugin.pb.h>
 
 
@@ -39,17 +39,17 @@ namespace Plugin {
         copy(v.begin(), v.end(), ostream_iterator<T>(os, " "));
         return os;
     };
-    
+
     class Flags {
     private:
         std::shared_ptr<spd::logger> _logger;
 
         po::variables_map _flags;
-        
+
         // Initial option descriptions
         po::options_description _command{COMMAND_DESC}, _global{GLOBAL_DESC};
         po::options_description _hidden, _additional{ADDITIONAL_DESC};
-        
+
         // Combined option descriptions
         po::options_description _visible, _command_line, _config_file;
 
@@ -97,7 +97,7 @@ namespace Plugin {
                         FlagLevel flagLevel);
         int addStringFlag(const char *optionName, const char *description,
                         FlagLevel flagLevel);
-        int AddFlag(const char *optionName, const char *description, 
+        int AddFlag(const char *optionName, const char *description,
                         FlagType flagType, FlagLevel flagLevel);
 
         int setVisibleFlags();
@@ -105,7 +105,7 @@ namespace Plugin {
         int setConfigFileFlags();
         int SetCombinedFlags();
 
-        int SetFlags() { 
+        int SetFlags() {
             if (SetDefaultFlags() != 0) return 1;
             if (SetCombinedFlags() != 0) return 1;
             return 0;

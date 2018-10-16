@@ -21,8 +21,9 @@ limitations under the License.
 
 This is a library for writing plugins in C++ for the [Snap telemetry framework](https://github.com/intelsdi-x/snap).
 
-Snap has three different plugin types. For instructions on how to write a plugin check out the following links to example plugins:
+Snap has four different plugin types. For instructions on how to write a plugin check out the following links to example plugins:
 * [collector](examples/collector/README.md),
+* [streaming-collector](examples/streaming-collector/README.md).
 * [processor](examples/processor/README.md),
 * [publisher](examples/publisher/README.md).
 
@@ -44,53 +45,126 @@ You will find [example plugins](examples) that cover the basics for writing coll
 
 ## Building libsnap:
 
-Dependencies:
+Requiered tools:
 * autoconf
 * automake
 * curl
 * g++
-* grpc++ (see below)
 * libtool
 * make
-* [spdlog v0.13.0](https://github.com/gabime/spdlog/releases)
-* [boost c++ libs v1.58.0](http://www.boost.org)
-* [cpp-netlib v0.11.2](http://cpp-netlib.org)
 
-### Building GRPC from source
+Dependencies:
+* [Boost](http://www.boost.org) ([Github](https://github.com/boostorg/boost)), latest version (currently 1.68)
+* [gRPC](https://grpc.io) and [Protobuf](https://developers.google.com/protocol-buffers/) ([Github](https://github.com/grpc/grpc)), latest version (currently 1.15.1)
+* [cpp-netlib](http://cpp-netlib.org) ([Github](https://github.com/cpp-netlib/cpp-netlib)), latest version (currently 0.13.0)
+* [spdlog](https://github.com/gabime/spdlog) ([Github](https://github.com/gabime/spdlog)), latest version (currently 1.2.0)
+* [nlohmann json](https://github.com/nlohmann/json) ([Github](https://github.com/nlohmann/json)), latest version (currently 3.3.0)
 
-Plugin currently depends on GRPC 1.0.x, so if your OS's package repository contains another version, it won't be compatible.
-First, you need to install all dependencies except GRPC, then build GRPC 1.0.x from source.
 
-#### To install GRPC 1.0.1:
+### Boost
+You can either download precompiled Boost libraries and headers or build them from source.
+
+Versions 1.57 to latest (1.68) are supported.
+
+Snap requires headers of Boost.Program_options, Boost.Algorithm, Boost.Any and Boost.Filesystem (the latter two may be replaced by their C++17 STL equivalents), and static libraries of `boost_program_options`, `boost_system` and `boost_filesystem`.
+
+### gRPC and Protobuf
+It is recommended to build gRPC and Protobuf from source to avoid dependency conflicts.
+
+Versions 1.0.1 to latest (1.15.1) are supported.
+
+#### To install GRPC
 ```bash
 git clone https://github.com/grpc/grpc
 cd grpc
-git checkout tags/v1.0.1
+git checkout tags/v1.15.1
 git submodule update --init
 make
 [sudo] make install
 ```
 
-#### To install protobuf (Google Protocol Buffers):
-Snap plugin library for C++ depends also on protobuf library. As it is already in GRPC dependencies, you can install it like:
+#### To install Protobuf (Google Protocol Buffers):
+Snap plugin library for C++ depends also on protobuf library. As it is already in gRPC dependencies, you can install it like:
 ```bash
-cd ./third_party/protobuf
+cd grpc/third_party/protobuf
 [sudo] make install
 ```
 
-### Once the above dependencies have been resolved:
+Then you have to generate Snap's plugin Protobuf interface:
+```bash
+cd snap-plugin-lib-cpp/src/snap/rpc
+protoc --cpp_out=. plugin.proto
+protoc --grpc_out=. --plugin=protoc-gen-grpc=/usr/local/bin/grpc_cpp_plugin plugin.proto
+```
+**Be careful to use the `protoc` executable that was built previously!** It should be in `/usr/local/bin/`.
 
-```sh
-$ ./autogen.sh
-$ ./configure
-$ make
-$ [sudo] make install
+
+### cpp-netlib
+Version 0.13.0 (latest) is supported.
+
+```bash
+git clone https://github.com/cpp-netlib/cpp-netlib
+cd cpp-netlib
+git checkout tags/cpp-netlib-0.12.0-final
+git submodule update --init
 ```
 
-`autotools` installs `libsnap` into `/usr/local/lib`, which not all linkers use when searching for shared objects.  Using the `--prefix=/usr` switch when running the `configure` script will place the resulting libraries into `/usr/lib`, for example.
+Then, create a `cpp-netlib-build` directory next to the cloned repository:
+```bash
+cd ..
+mkdir cpp-netlib-build
+cd cpp-netlib-build
+cmake ../cpp-netlib
+make
+[sudo] make install
+```
+
+### Asio
+For cpp-netlib version 0.12.0, Asio headers need to be installed as well. This is not needed for other versions of cpp-netlib.
+
+As Asio is already in cpp-netlib dependencies, you can install it like:
+```bash
+cd cpp-netlib/deps/asio/asio
+./autogen.sh
+./configure
+make
+[sudo] make install
+```
+And then build cpp-netlib again
+
+Other versions of cpp-netlib use Boost.Asio, which is installed with Boost.
+
+### spdlog
+Versions 0.13.0 to latest (1.2.0) are supported.
+
+```bash
+git clone https://github.com/gabime/spdlog
+cd spdlog
+git checkout tags/v1.2.0
+[sudo] cp -r ./include/spdlog /usr/local/include
+```
+
+### JSON
+Versions 2.0.9 to latest (3.3.0) are supported.
+
+```bash
+wget https://github.com/nlohmann/json/releases/download/v3.3.0/json.hpp
+[sudo] cp json.hpp /usr/local/include/json.hpp
+```
+
+### Once the above dependencies have been resolved:
+First, execute `ldconfig /usr/local/lib/` to allow ld to look for installed libraries in `/usr/local/lib`. Then you can build the Snap library:
+```bash
+./autogen.sh
+./configure
+make
+[sudo] make install
+```
+
+`libsnap` (and all previous dependencies) are installed into `/usr/local/lib`, which not all linkers use when searching for shared objects. Using the `--prefix=/usr` switch when running the `configure` script will place the resulting libraries into `/usr/lib`, for example.
 
 To clean up and rebuild use:
-```sh
-$ make clean
-$ git clean -df  # warning! This deletes all dirs and files not checked in.  Be sure to check in any new files before running `git clean`.
+```bash
+make clean
+git clean -xdf  # warning! This deletes all dirs and files not checked in. Be sure to check in any new files before running `git clean`.
 ```

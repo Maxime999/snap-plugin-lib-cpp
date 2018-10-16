@@ -154,10 +154,10 @@ typedef http::server<Plugin::GRPCExportImpl::handler_type> http_server;
 
 struct Plugin::GRPCExportImpl::handler_type {
     std::string preamble;
-    void operator() (http_server::request const &request,
-                     http_server::response &response) {
-        response = http_server::response::stock_reply(
-            http_server::response::ok, this->preamble);
+    void operator() (http_server::request const &request, http_server::connection_ptr connection) {
+      // connection->set_status(http_server::connection::ok);
+      // connection->set_headers(boost::network::header("Content-Type", "application/json"));
+      connection->write("HTTP/1.1 200 OK\nContent-Type: application/json\n\n" + this->preamble); // work around cpp-netlib bugs (as in 0.12.0)
     }
 
     void log(http_server::string_type const &info) {
@@ -183,12 +183,11 @@ future<void> Plugin::GRPCExportImpl::DoExport(shared_ptr<PluginInterface> plugin
     doRegister();
 
     if (this->meta->stand_alone) {
-        auto start_sa = std::async(std::launch::deferred, &Plugin::GRPCExportImpl::start_stand_alone, this,
+        return std::async(std::launch::deferred, &Plugin::GRPCExportImpl::start_stand_alone, this,
                                     this->meta->stand_alone_port);
-        start_sa.get();
     }
     else cout << printPreamble() << endl;
-    
+
     auto self = this->shared_from_this();
     return std::async(std::launch::deferred, [=](){ self->doJoin(); });
 }
@@ -285,14 +284,17 @@ json Plugin::GRPCExportImpl::printPreamble() {
 }
 
 void Plugin::GRPCExportImpl::doJoin() {
-    server->Wait();
+    auto pluginKilledLock = Proxy::PluginImpl::getPluginKilledLock();
+    pluginKilledLock.wait();
+    std::cerr << "Plugin dies" << std::endl;
+    // server->Wait();
 }
 
-int Plugin::GRPCExportImpl::start_stand_alone(const int &httpPort) {
+void Plugin::GRPCExportImpl::start_stand_alone(const int &httpPort) {
     try {
         std::stringstream ss;
         ss << printPreamble();
-  
+
         handler_type _handler;
         _handler.preamble = ss.str();
         http_server::options options(_handler);
@@ -302,8 +304,7 @@ int Plugin::GRPCExportImpl::start_stand_alone(const int &httpPort) {
     }
     catch (std::exception &e) {
         std::cerr << e.what() << std::endl;
-        return 1;
     }
 
-    return 0;
+    return;
 }

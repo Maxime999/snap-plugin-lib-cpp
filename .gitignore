@@ -39,3 +39,43 @@ vendor/
 
 # ignore build artifacts
 build/
+
+# Autotools build intermediates
+*.la
+*.lo
+*.gcno
+*.gcda
+**/.deps
+**/.dirstamp
+**/.libs
+
+Makefile
+Makefile.in
+aclocal.m4
+autom4te.cache/
+config.guess
+config.log
+config.status
+config.sub
+configure
+depcomp
+googletest/testing/
+include/
+install-sh
+lib/
+libtool
+ltmain.sh
+missing
+src/Makefile
+src/Makefile.in
+test/test_main
+examples/bin/
+examples/collector/src/test-collector-rando
+examples/processor/src/test-processor-graffiti
+examples/publisher/src/test-publisher-log
+examples/streaming-collector/src/test-streaming-collector-rando
+
+src/snap/rpc/plugin.grpc.pb.cc
+src/snap/rpc/plugin.grpc.pb.h
+src/snap/rpc/plugin.pb.cc
+src/snap/rpc/plugin.pb.h
